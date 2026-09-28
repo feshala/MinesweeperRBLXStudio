@@ -2,20 +2,19 @@
 	GameLogic (ModuleScript)
 	Path: ReplicatedStorage > Minesweeper > GameLogic
 
-	Handles the core Minesweeper game mechanics:
-	- Bomb generation (guaranteeing first click safety)
-	- Proximity calculation
-	- Flood fill reveal logic
-	- Win/Loss condition checking
+	Menangani logika inti permainan Minesweeper:
+	- Generasi bom dengan jaminan klik pertama aman.
+	- Kalkulasi jumlah bom di sekitar sel.
+	- Algoritma Reveal (Flood Fill).
+	- Pengecekan kondisi menang/kalah.
 --]]
 
 local GameLogic = {}
 
 --=========================================================
--- TYPES & CONSTANTS
+-- CONSTANTS
 --=========================================================
--- We use a coordinate system {row, col}
-type Pos = { row: number, col: number }
+type Position = { row: number, col: number }
 
 local DIRECTIONS = {
 	{ -1, -1 }, { -1, 0 }, { -1, 1 },
@@ -27,17 +26,15 @@ local DIRECTIONS = {
 -- PRIVATE HELPERS
 --=========================================================
 
--- Check if coordinates are within the grid boundaries
-local function isValidPos(pos, rows, cols)
+local function isWithinBounds(pos, rows, cols)
 	return pos.row >= 1 and pos.row <= rows and pos.col >= 1 and pos.col <= cols
 end
 
--- Get all valid neighboring positions
-local function getNeighbors(pos, rows, cols)
+local function getValidNeighbors(pos, rows, cols)
 	local neighbors = {}
-	for _, dir in ipairs(DIRECTIONS) do
+	for _, dir in DIRECTIONS do
 		local neighborPos = { row = pos.row + dir[1], col = pos.col + dir[2] }
-		if isValidPos(neighborPos, rows, cols) then
+		if isWithinBounds(neighborPos, rows, cols) then
 			table.insert(neighbors, neighborPos)
 		end
 	end
@@ -48,13 +45,13 @@ end
 -- PUBLIC API
 --=========================================================
 
---- Generates the minefield
---- @param firstClick Pos The position of the first click to ensure it's not a bomb
---- @param rows number
---- @param cols number
---- @param mineCount number
+--- Membuat peta bom secara acak.
+--- @param firstClick Position Posisi klik pertama (dijamin bukan bom).
+--- @param rows number Jumlah baris.
+--- @param cols number Jumlah kolom.
+--- @param mineCount number Jumlah bom yang harus diletakkan.
 function GameLogic.generateMinefield(firstClick, rows, cols, mineCount)
-	local minefield = {}
+	local minefield = table.create(rows)
 	for r = 1, rows do
 		minefield[r] = table.create(cols, false)
 	end
@@ -64,8 +61,8 @@ function GameLogic.generateMinefield(firstClick, rows, cols, mineCount)
 		local r = math.random(1, rows)
 		local c = math.random(1, cols)
 
-		-- Rule: No mine at first click, and no duplicate mines
-		if (r ~= firstClick.row or c ~= firstClick.col) and not minefield[r][c] then
+		local isFirstClick = (r == firstClick.row and c == firstClick.col)
+		if not isFirstClick and not minefield[r][c] then
 			minefield[r][c] = true
 			placedMines += 1
 		end
@@ -74,54 +71,43 @@ function GameLogic.generateMinefield(firstClick, rows, cols, mineCount)
 	return minefield
 end
 
---- Calculates how many mines are adjacent to a specific cell
---- @param pos Pos
---- @param minefield table 2D array of booleans
+--- Menghitung jumlah bom di sekitar sel tertentu.
+--- @param pos Position
+--- @param minefield table Array 2D boolean.
 function GameLogic.calculateProximity(pos, minefield)
 	local count = 0
-	-- We only need to check the 8 neighbors
-	for _, dir in ipairs(DIRECTIONS) do
+	for _, dir in DIRECTIONS do
 		local r, c = pos.row + dir[1], pos.col + dir[2]
-		-- CRITICAL FIX: Boundary check. 
-		-- Ensure the row index exists and the column index is within bounds.
-		if minefield[r] and minefield[r][c] ~= nil then
-			if minefield[r][c] == true then
-				count += 1
-			end
+		if minefield[r] and minefield[r][c] == true then
+			count += 1
 		end
 	end
 	return count
 end
 
---- Recursive Flood Fill for revealing empty cells
---- @param pos Pos
+--- Algoritma Flood Fill untuk membuka sel kosong secara rekursif.
+--- @param pos Position
 --- @param rows number
 --- @param cols number
 --- @param minefield table
---- @param revealedSet table A set tracking already revealed cells to prevent infinite recursion
---- @param callback function(pos, proximity) Called for every cell that needs to be revealed
+--- @param revealedSet table Set untuk melacak sel yang sudah dibuka.
+--- @param callback function Callback visual untuk setiap sel yang terbuka.
 function GameLogic.floodFill(pos, rows, cols, minefield, revealedSet, callback)
-	-- Use a key for the set to track visited cells
-	local key = pos.row .. "_" .. pos.col
+	local key = string.format("%d_%d", pos.row, pos.col)
 	if revealedSet[key] then return end
 	revealedSet[key] = true
 
-	-- Calculate proximity for current cell
 	local proximity = GameLogic.calculateProximity(pos, minefield)
-	
-	-- Trigger the callback to reveal this cell visually
 	callback(pos, proximity)
 
-	-- If the cell is "empty" (0 neighboring bombs), recursively reveal neighbors
 	if proximity == 0 then
-		local neighbors = getNeighbors(pos, rows, cols)
-		for _, neighbor in ipairs(neighbors) do
+		for _, neighbor in getValidNeighbors(pos, rows, cols) do
 			GameLogic.floodFill(neighbor, rows, cols, minefield, revealedSet, callback)
 		end
 	end
 end
 
---- Checks if the player has won the game
+--- Mengecek apakah pemain telah memenangkan permainan.
 --- @param rows number
 --- @param cols number
 --- @param minefield table
@@ -129,15 +115,15 @@ end
 function GameLogic.checkWin(rows, cols, minefield, revealedSet)
 	local totalCells = rows * cols
 	local mineCount = 0
+	
 	for r = 1, rows do
 		for c = 1, cols do
 			if minefield[r][c] then mineCount += 1 end
 		end
 	end
 
-	-- Player wins if all non-mine cells are revealed
 	local revealedCount = 0
-	for _ in pairs(revealedSet) do revealedCount += 1 end
+	for _ in revealedSet do revealedCount += 1 end
 
 	return revealedCount == (totalCells - mineCount)
 end

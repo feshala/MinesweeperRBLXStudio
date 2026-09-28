@@ -1,9 +1,8 @@
 --[[
-	GridGenerator  (ModuleScript)
-	Letak: ReplicatedStorage > Shared > GridGenerator
+	GridGenerator (ModuleScript)
+	Letak: ReplicatedStorage > Minesweeper > GridGenerator
 
-	Membuat grid cell secara otomatis ke dalam frame target, menyimpan
-	state 2D array, dan menyediakan API untuk game logic.
+	Menghasilkan grid cell secara otomatis dan mengelola state visualnya.
 --]]
 
 local TweenService = game:GetService("TweenService")
@@ -16,13 +15,13 @@ local GridGenerator = {}
 GridGenerator.__index = GridGenerator
 
 GridGenerator.State = {
-	Empty     = "Empty",     -- Hidden
-	Revealed  = "Revealed",  -- Opened (shows number or empty)
-	Flagged   = "Flagged",   -- Marked with flag
-	Bomb      = "Bomb",      -- Game Over bomb
+	Empty     = "Empty",     -- Tersembunyi
+	Revealed  = "Revealed",  -- Terbuka (menampilkan angka/kosong)
+	Flagged   = "Flagged",   -- Ditandai bendera
+	Bomb      = "Bomb",      -- Bom (Game Over)
 }
 
-local COLOR_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local COLOR_TWEEN_INFO = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 --=========================================================
 -- CONSTRUCTOR
@@ -30,41 +29,40 @@ local COLOR_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirect
 function GridGenerator.new(gridFrame)
 	local self = setmetatable({}, GridGenerator)
 
-	self._frame    = gridFrame
-	self._columns  = 0
-	self._rows     = 0
-	self._cells    = {}
+	self._frame = gridFrame
+	self._columns = 0
+	self._rows = 0
+	self._cells = {}
 	self._callbacks = {}
 	self._rightClickCallbacks = {}
 
-	self._layout = gridFrame:FindFirstChildOfClass("UIGridLayout")
-	if not self._layout then
-		self._layout = UIHelper.gridLayout({
-			FillDirection = Enum.FillDirection.Horizontal,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			StartCorner = Enum.StartCorner.TopLeft,
-			HorizontalAlignment = Enum.HorizontalAlignment.Center,
-			VerticalAlignment = Enum.VerticalAlignment.Center,
-			CellPadding = UDim2.new(0, 0, 0, 0),
-		}, gridFrame)
-	end
-
-	self._aspect = gridFrame:FindFirstChildOfClass("UIAspectRatioConstraint")
-	if not self._aspect then
-		self._aspect = UIHelper.aspectRatio({
-			AspectType = Enum.AspectType.FitWithinMaxSize,
-			DominantAxis = Enum.DominantAxis.Width,
-		}, gridFrame)
-	end
+	self:_setupLayout()
 
 	return self
 end
 
+function GridGenerator:_setupLayout()
+	self._layout = self._frame:FindFirstChildOfClass("UIGridLayout") or UIHelper.gridLayout({
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		StartCorner = Enum.StartCorner.TopLeft,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		CellPadding = UDim2.new(0, 0, 0, 0),
+	}, self._frame)
+
+	self._aspect = self._frame:FindFirstChildOfClass("UIAspectRatioConstraint") or UIHelper.aspectRatio({
+		AspectType = Enum.AspectType.FitWithinMaxSize,
+		DominantAxis = Enum.DominantAxis.Width,
+	}, self._frame)
+end
+
 --=========================================================
--- PRIVATE
+-- PRIVATE METHODS
 --=========================================================
+
 function GridGenerator:_clear()
-	for _, child in ipairs(self._frame:GetChildren()) do
+	for _, child in self._frame:GetChildren() do
 		if child:IsA("GuiObject") then
 			child:Destroy()
 		end
@@ -74,15 +72,9 @@ function GridGenerator:_clear()
 	table.clear(self._rightClickCallbacks)
 end
 
-function GridGenerator:_fireCellClicked(cellData)
-	for i = 1, #self._callbacks do
-		self._callbacks[i](cellData)
-	end
-end
-
-function GridGenerator:_fireCellRightClicked(cellData)
-	for i = 1, #self._rightClickCallbacks do
-		self._rightClickCallbacks[i](cellData)
+function GridGenerator:_fireCallbacks(callbackList, cellData)
+	for _, callback in callbackList do
+		callback(cellData)
 	end
 end
 
@@ -96,12 +88,7 @@ function GridGenerator:_createCell(row, col, cellPadding)
 	button.LayoutOrder = (row - 1) * self._columns + col
 	button.ZIndex = 1
 
-	local pad = Instance.new("UIPadding")
-	pad.PaddingTop    = UDim.new(0, cellPadding)
-	pad.PaddingBottom = UDim.new(0, cellPadding)
-	pad.PaddingLeft   = UDim.new(0, cellPadding)
-	pad.PaddingRight  = UDim.new(0, cellPadding)
-	pad.Parent = button
+	UIHelper.padding(cellPadding, button)
 
 	local tile = Instance.new("Frame")
 	tile.Name = "Tile"
@@ -109,12 +96,8 @@ function GridGenerator:_createCell(row, col, cellPadding)
 	tile.BackgroundColor3 = Theme.TileIdle
 	tile.BorderSizePixel = 0
 	tile.Parent = button
+	UIHelper.corner(0.2, tile)
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.2, 0)
-	corner.Parent = tile
-
-	-- Indicator for numbers, bombs, flags
 	local indicator = UIHelper.label({
 		Name = "Indicator",
 		Size = UDim2.fromScale(1, 1),
@@ -140,20 +123,22 @@ function GridGenerator:_createCell(row, col, cellPadding)
 	}
 
 	button.Activated:Connect(function()
-		self:_fireCellClicked(cellData)
+		self:_fireCallbacks(self._callbacks, cellData)
 	end)
 
 	button.MouseButton2Click:Connect(function()
-		self:_fireCellRightClicked(cellData)
+		self:_fireCallbacks(self._rightClickCallbacks, cellData)
 	end)
 
 	return cellData
 end
 
 function GridGenerator:_colorForState(state)
-	if state == GridGenerator.State.Revealed then return Theme.PanelLight end
-	if state == GridGenerator.State.Bomb then return Color3.fromRGB(200, 50, 50) end
-	return Theme.TileIdle
+	local colors = {
+		[GridGenerator.State.Revealed] = Theme.PanelLight,
+		[GridGenerator.State.Bomb]     = Color3.fromRGB(200, 50, 50),
+	}
+	return colors[state] or Theme.TileIdle
 end
 
 function GridGenerator:_applyVisual(cellData, animate)
@@ -165,7 +150,7 @@ function GridGenerator:_applyVisual(cellData, animate)
 	end
 
 	if animate then
-		cellData.Tween = TweenService:Create(cellData.Tile, COLOR_TWEEN, {
+		cellData.Tween = TweenService:Create(cellData.Tile, COLOR_TWEEN_INFO, {
 			BackgroundColor3 = targetColor,
 		})
 		cellData.Tween:Play()
@@ -177,15 +162,13 @@ end
 --=========================================================
 -- PUBLIC API
 --=========================================================
+
 function GridGenerator:Build(columns, rows, cellPadding)
-	columns = columns or 10
-	rows = rows or 15
-	cellPadding = cellPadding or 2
+	columns, rows, cellPadding = columns or 10, rows or 15, cellPadding or 2
 	assert(columns > 0 and rows > 0, "Dimensi grid harus > 0")
 
 	self:_clear()
-	self._columns = columns
-	self._rows = rows
+	self._columns, self._rows = columns, rows
 
 	self._layout.CellSize = UDim2.fromScale(1 / columns, 1 / rows)
 	self._layout.FillDirectionMaxCells = columns
@@ -229,7 +212,6 @@ function GridGenerator:SetCellState(row, col, state, animate)
 	self:_applyVisual(cellData, animate)
 end
 
---- Update the indicator text (number, bomb, flag)
 function GridGenerator:SetCellIndicator(row, col, text)
 	local cellData = self:GetCell(row, col)
 	if cellData then
@@ -244,31 +226,25 @@ end
 
 function GridGenerator:ForEachCell(callback)
 	for row = 1, self._rows do
-		local rowCells = self._cells[row]
 		for col = 1, self._columns do
-			callback(rowCells[col])
+			callback(self._cells[row][col])
 		end
 	end
 end
 
 function GridGenerator:CountState(state)
 	local total = 0
-	for row = 1, self._rows do
-		local rowCells = self._cells[row]
-		for col = 1, self._columns do
-			if rowCells[col].State == state then
-				total += 1
-			end
-		end
-	end
+	self:ForEachCell(function(cell)
+		if cell.State == state then total += 1 end
+	end)
 	return total
 end
 
 function GridGenerator:Reset(animate)
-	self:ForEachCell(function(cellData)
-		cellData.State = GridGenerator.State.Empty
-		self:_applyVisual(cellData, animate)
-		cellData.Indicator.Text = ""
+	self:ForEachCell(function(cell)
+		cell.State = GridGenerator.State.Empty
+		self:_applyVisual(cell, animate)
+		cell.Indicator.Text = ""
 	end)
 end
 

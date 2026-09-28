@@ -1,42 +1,33 @@
 --[[
-	UIHelper  (ModuleScript)
-	Letak: ReplicatedStorage > Shared > UIHelper
+	UIHelper (ModuleScript)
+	Letak: ReplicatedStorage > Minesweeper > UIHelper
 
-	Pustaka helper code-first. Semua elemen UI dibuat via Instance.new()
-	lewat fungsi di bawah. Tidak ada satupun yang dibuat manual di Studio.
-
-	Pola inti:
-		UIHelper.frame(
-			{ Size = ..., BackgroundColor3 = ... },   -- props
-			{ childA, childB, childC }                -- children
-		)
-	Props di-loop, children ditempel, lalu Parent di-SET PALING AKHIR
-	(optimasi render batch — subtree masuk sekaligus).
+	Pustaka helper untuk pembuatan UI secara programatik (code-first).
+	Menghindari pembuatan manual di Studio untuk konsistensi dan kemudahan modifikasi.
 --]]
 
 local UIHelper = {}
 
 --=========================================================
--- THEME — Single Source of Truth
+-- THEME
 --=========================================================
 UIHelper.Theme = {
-	-- Warna (sesuai referensi: dark green + light green)
+	-- Colors
 	Background  = Color3.fromRGB(26, 42, 26),
 	Panel       = Color3.fromRGB(34, 54, 34),
 	PanelLight  = Color3.fromRGB(46, 70, 46),
 	TileIdle    = Color3.fromRGB(119, 192, 70),
 	TileFilled  = Color3.fromRGB(242, 201, 76),
 	TileLocked  = Color3.fromRGB(70, 96, 66),
-
 	Text        = Color3.fromRGB(240, 246, 236),
 	TextDim     = Color3.fromRGB(168, 190, 162),
 	Accent      = Color3.fromRGB(119, 192, 70),
 
-	-- Font
+	-- Fonts
 	Font        = Enum.Font.GothamBold,
 	FontMedium  = Enum.Font.GothamMedium,
 
-	-- Ukuran teks
+	-- Font Sizes
 	FontSize = {
 		Small  = 12,
 		Normal = 14,
@@ -47,51 +38,52 @@ UIHelper.Theme = {
 }
 
 --=========================================================
--- INTERNAL
+-- PRIVATE HELPERS
 --=========================================================
-local function applyProps(instance, props)
+
+local function applyProperties(instance, props)
 	if not props then return end
-	for key, value in pairs(props) do
+	for key, value in props do
 		if key ~= "Parent" then
 			instance[key] = value
 		end
 	end
 end
 
-local function cloneWithParent(props, parent)
-	local copy = {}
-	if props then
-		for k, v in pairs(props) do copy[k] = v end
-	end
-	copy.Parent = parent
-	return copy
+local function createParentProps(props, parent)
+	local newProps = table.clone(props or {})
+	newProps.Parent = parent
+	return newProps
 end
 
 --=========================================================
 -- CORE CREATOR
 --=========================================================
---- Membuat instance generik.
---- @param className string
---- @param props table|nil
---- @param children table|nil
+
+--- Membuat instance UI secara generik.
+--- @param className string Nama kelas Instance (e.g. "Frame")
+--- @param props table Properti yang akan diterapkan
+--- @param children table Daftar child Instance
 function UIHelper.create(className, props, children)
-	local inst = Instance.new(className)
-	applyProps(inst, props)
+	local instance = Instance.new(className)
+	applyProperties(instance, props)
 
 	if children then
-		for i = 1, #children do
-			children[i].Parent = inst
+		for _, child in children do
+			child.Parent = instance
 		end
 	end
 
-	-- Parent LAST: subtree ter-attach sekaligus (1 render, bukan N).
-	inst.Parent = props and props.Parent
+	-- Set Parent terakhir untuk optimasi rendering
+	if props and props.Parent then
+		instance.Parent = props.Parent
+	end
 
-	return inst
+	return instance
 end
 
 --=========================================================
--- SHORTCUT CREATORS
+-- SHORTCUTS
 --=========================================================
 function UIHelper.frame(props, children)       return UIHelper.create("Frame", props, children) end
 function UIHelper.label(props, children)       return UIHelper.create("TextLabel", props, children) end
@@ -100,47 +92,44 @@ function UIHelper.image(props, children)       return UIHelper.create("ImageLabe
 function UIHelper.screenGui(props, children)   return UIHelper.create("ScreenGui", props, children) end
 
 --=========================================================
--- MODIFIER HELPERS
+-- MODIFIERS
 --=========================================================
---- UICorner. Terima number (offset px), UDim, atau nil (default 8px).
+
 function UIHelper.corner(radius, parent)
-	if type(radius) == "number" then radius = UDim.new(0, radius) end
-	return UIHelper.create("UICorner", cloneWithParent({
-		CornerRadius = radius or UDim.new(0, 8),
-	}, parent))
+	local cornerRadius = type(radius) == "number" and UDim.new(0, radius) or radius or UDim.new(0, 8)
+	return UIHelper.create("UICorner", createParentProps({ CornerRadius = cornerRadius }, parent))
 end
 
---- UIPadding uniform. Terima number (px), UDim, atau tabel props lengkap.
 function UIHelper.padding(uniform, parent)
-	if type(uniform) == "table" then
-		return UIHelper.create("UIPadding", cloneWithParent(uniform, parent))
+	if type(uniform) == "table" then 
+		return UIHelper.create("UIPadding", createParentProps(uniform, parent)) 
 	end
-	if type(uniform) == "number" then uniform = UDim.new(0, uniform) end
-	local u = uniform or UDim.new(0, 0)
-	return UIHelper.create("UIPadding", cloneWithParent({
-		PaddingTop = u, PaddingBottom = u,
-		PaddingLeft = u, PaddingRight = u,
+	
+	local p = type(uniform) == "number" and UDim.new(0, uniform) or uniform or UDim.new(0, 0)
+	return UIHelper.create("UIPadding", createParentProps({
+		PaddingTop = p, PaddingBottom = p,
+		PaddingLeft = p, PaddingRight = p,
 	}, parent))
 end
 
 function UIHelper.listLayout(props, parent)
-	return UIHelper.create("UIListLayout", cloneWithParent(props or {}, parent))
+	return UIHelper.create("UIListLayout", createParentProps(props or {}, parent))
 end
 
 function UIHelper.gridLayout(props, parent)
-	return UIHelper.create("UIGridLayout", cloneWithParent(props or {}, parent))
+	return UIHelper.create("UIGridLayout", createParentProps(props or {}, parent))
 end
 
 function UIHelper.uiScale(scale, parent)
-	return UIHelper.create("UIScale", cloneWithParent({ Scale = scale or 1 }, parent))
+	return UIHelper.create("UIScale", createParentProps({ Scale = scale or 1 }, parent))
 end
 
 function UIHelper.aspectRatio(props, parent)
-	return UIHelper.create("UIAspectRatioConstraint", cloneWithParent(props or {}, parent))
+	return UIHelper.create("UIAspectRatioConstraint", createParentProps(props or {}, parent))
 end
 
 function UIHelper.stroke(props, parent)
-	return UIHelper.create("UIStroke", cloneWithParent(props or {}, parent))
+	return UIHelper.create("UIStroke", createParentProps(props or {}, parent))
 end
 
 return UIHelper

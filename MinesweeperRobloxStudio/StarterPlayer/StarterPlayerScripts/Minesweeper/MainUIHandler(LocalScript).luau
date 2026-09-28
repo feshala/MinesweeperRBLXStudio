@@ -1,8 +1,8 @@
 --[[
-	MainUIHandler  (LocalScript)
+	MainUIHandler (LocalScript)
 	Letak: StarterPlayer > StarterPlayerScripts > MainUIHandler
 
-	Integrates GridGenerator and GameLogic with an advanced Action Menu interaction system.
+	Orkestrator UI dan interaksi utama permainan Minesweeper.
 --]]
 
 local Players           = game:GetService("Players")
@@ -17,11 +17,10 @@ local GameLogic      = require(ReplicatedStorage:WaitForChild("Minesweeper"):Wai
 local Theme = UIHelper.Theme
 
 --=========================================================
--- 0. KONSTANTA
+-- CONFIGURATION
 --=========================================================
 local DESIGN_W, DESIGN_H = 420, 900
-local TOP_BAR_H          = 64
-local BOTTOM_BAR_H       = 72
+local TOP_BAR_H, BOTTOM_BAR_H = 64, 72
 
 local DIFFICULTIES = {
 	{ Name = "Easy",   Columns = 8,  Rows = 10, Targets = 10 },
@@ -30,7 +29,6 @@ local DIFFICULTIES = {
 }
 local DEFAULT_DIFFICULTY = "Medium"
 
--- Interaction Settings
 local DOUBLE_CLICK_THRESHOLD = 0.3
 local LONG_PRESS_THRESHOLD = 0.5
 
@@ -38,7 +36,7 @@ local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 --=========================================================
--- 1. SCREEN GUI
+-- UI ELEMENTS
 --=========================================================
 local screenGui = UIHelper.screenGui({
 	Name = "PuzzleGameUI",
@@ -52,16 +50,12 @@ local screenGui = UIHelper.screenGui({
 UIHelper.frame({
 	Name = "Backdrop",
 	Size = UDim2.fromScale(1, 1),
-	Position = UDim2.fromScale(0, 0),
 	BackgroundColor3 = Theme.Background,
 	BorderSizePixel = 0,
 	ZIndex = 0,
 	Parent = screenGui,
 })
 
---=========================================================
--- 2. CONTENT CANVAS
---=========================================================
 local contentCanvas = UIHelper.frame({
 	Name = "ContentCanvas",
 	Size = UDim2.fromOffset(DESIGN_W, DESIGN_H),
@@ -73,13 +67,10 @@ local contentCanvas = UIHelper.frame({
 
 local uiScale = UIHelper.uiScale(1, contentCanvas)
 
---=========================================================
--- 3. TOP BAR
---=========================================================
+-- Top Bar Setup
 local topBar = UIHelper.frame({
 	Name = "TopBar",
 	Size = UDim2.new(1, 0, 0, TOP_BAR_H),
-	Position = UDim2.new(0, 0, 0, 0),
 	BackgroundColor3 = Theme.Panel,
 	BorderSizePixel = 0,
 	Parent = contentCanvas,
@@ -133,7 +124,6 @@ local progressGroup = UIHelper.frame({
 	Parent = topBar,
 })
 UIHelper.corner(8, progressGroup)
-
 UIHelper.listLayout({
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -177,7 +167,6 @@ local timerGroup = UIHelper.frame({
 	Parent = topBar,
 })
 UIHelper.corner(8, timerGroup)
-
 UIHelper.listLayout({
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -235,9 +224,6 @@ local soundIcon = UIHelper.label({
 	Parent = soundButton,
 })
 
---=========================================================
--- 4. GRID AREA
---=========================================================
 local gridFrame = UIHelper.frame({
 	Name = "MainGridFrame",
 	Size = UDim2.new(0.95, 0, 0.6, 0),
@@ -250,9 +236,6 @@ local gridFrame = UIHelper.frame({
 
 local grid = GridGenerator.new(gridFrame)
 
---=========================================================
--- 5. BOTTOM BAR
---=========================================================
 local bottomBar = UIHelper.frame({
 	Name = "BottomBar",
 	Size = UDim2.new(1, 0, 0, BOTTOM_BAR_H),
@@ -287,9 +270,6 @@ UIHelper.label({
 	Parent = menuButton,
 })
 
---=========================================================
--- 6. DROPDOWN
---=========================================================
 local dropdownBackdrop = UIHelper.button({
 	Name = "DropdownBackdrop",
 	Size = UDim2.fromScale(1, 1),
@@ -315,7 +295,6 @@ local dropdownMenu = UIHelper.frame({
 })
 UIHelper.corner(8, dropdownMenu)
 UIHelper.padding(4, dropdownMenu)
-
 UIHelper.listLayout({
 	FillDirection = Enum.FillDirection.Vertical,
 	SortOrder = Enum.SortOrder.LayoutOrder,
@@ -324,54 +303,21 @@ UIHelper.listLayout({
 	VerticalAlignment = Enum.VerticalAlignment.Center,
 }, dropdownMenu)
 
-for i, data in ipairs(DIFFICULTIES) do
-	UIHelper.button({
-		Name = "Option_" .. data.Name,
-		Size = UDim2.new(1, 0, 0, 34),
-		BackgroundColor3 = Theme.PanelLight,
-		BackgroundTransparency = 0.35,
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Text = data.Name,
-		TextColor3 = Theme.Text,
-		TextSize = Theme.FontSize.Normal,
-		Font = Theme.FontMedium,
-		LayoutOrder = i,
-		ZIndex = 7,
-		Parent = dropdownMenu,
-	})
-end
-
 --=========================================================
--- 7. RESPONSIVE UISCALE
---=========================================================
-local camera = workspace.CurrentCamera
-local function updateUIScale()
-	local vp = camera.ViewportSize
-	uiScale.Scale = math.min(vp.X / DESIGN_W, vp.Y / DESIGN_H)
-end
-updateUIScale()
-camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateUIScale)
-
---=========================================================
--- 8. GAME STATE
+-- STATE
 --=========================================================
 local state = {
 	currentDifficulty = DEFAULT_DIFFICULTY,
-	muted   = false,
-	target  = 40,
-	filled  = 0,
-	-- Minefield data
-	minefield   = nil, 
+	muted = false,
+	target = 40,
+	minefield = nil, 
 	revealedSet = {},
 	gameStarted = false,
-	gameEnded   = false,
-	
+	gameEnded = false,
 	elapsed = 0,
 	dropdownOpen = false,
 	timerConn = nil,
 	lastSecond = -1,
-	completed = false,
 }
 
 local SoundService = game:GetService("SoundService")
@@ -391,22 +337,17 @@ local function playSfx(soundId)
 end
 
 --=========================================================
--- 9. TIMER
+-- TIMER
 --=========================================================
-local function formatTime(sec)
-	return string.format("%03d", math.floor(sec))
-end
-
 local function startTimer()
 	if state.timerConn then state.timerConn:Disconnect() end
-	state.elapsed = 0
-	state.lastSecond = -1
+	state.elapsed, state.lastSecond = 0, -1
 	state.timerConn = RunService.Heartbeat:Connect(function(dt)
 		state.elapsed += dt
 		local s = math.floor(state.elapsed)
 		if s ~= state.lastSecond then
 			state.lastSecond = s
-			timerLabel.Text = formatTime(s)
+			timerLabel.Text = string.format("%03d", s)
 		end
 	end)
 end
@@ -419,30 +360,22 @@ local function stopTimer()
 end
 
 --=========================================================
--- 10. PROGRESS
+-- CORE GAME LOGIC
 --=========================================================
+
 local function updateProgress()
 	local flaggedCount = grid:CountState(GridGenerator.State.Flagged)
 	progressLabel.Text = string.format("%d / %d", flaggedCount, state.target)
 end
 
---=========================================================
--- 11. GAME MECHANICS
---=========================================================
-
 local function endGame(won)
 	state.gameEnded = true
 	stopTimer()
-	
-	if won then
-		print("[Game] You Win!")
-	else
-		print("[Game] Game Over!")
+	if not won then
 		grid:ForEachCell(function(cell)
-			local row, col = cell.Row, cell.Column
-			if state.minefield[row][col] then
-				grid:SetCellState(row, col, GridGenerator.State.Bomb, true)
-				grid:SetCellIndicator(row, col, "💣")
+			if state.minefield[cell.Row][cell.Column] then
+				grid:SetCellState(cell.Row, cell.Column, GridGenerator.State.Bomb, true)
+				grid:SetCellIndicator(cell.Row, cell.Column, "💣")
 			end
 		end)
 	end
@@ -460,19 +393,12 @@ local function revealCell(row, col)
 	end
 	
 	local cols, rows = grid:GetDimensions()
-	GameLogic.floodFill({row = row, col = col}, 
-		rows, 
-		cols, 
-		state.minefield, 
-		state.revealedSet, 
-		function(pos, proximity)
-			local r, c = pos.row, pos.col
-			grid:SetCellState(r, c, GridGenerator.State.Revealed, true)
-			if proximity > 0 then
-				grid:SetCellIndicator(r, c, tostring(proximity))
-			end
+	GameLogic.floodFill({row = row, col = col}, rows, cols, state.minefield, state.revealedSet, function(pos, proximity)
+		grid:SetCellState(pos.row, pos.col, GridGenerator.State.Revealed, true)
+		if proximity > 0 then
+			grid:SetCellIndicator(pos.row, pos.col, tostring(proximity))
 		end
-	)
+	end)
 	
 	local colsW, rowsW = grid:GetDimensions()
 	if GameLogic.checkWin(rowsW, colsW, state.minefield, state.revealedSet) then
@@ -482,12 +408,9 @@ end
 
 local function toggleFlag(row, col)
 	local cell = grid:GetCell(row, col)
-	if not cell or cell.State ~= GridGenerator.State.Empty then return end
+	if not cell or cell.LState ~= GridGenerator.State.Empty then return end
 	
-	local newState = (cell.State == GridGenerator.State.Flagged) 
-		and GridGenerator.State.Empty 
-		or GridGenerator.State.Flagged
-	
+	local newState = (cell.State == GridGenerator.State.Flagged) and GridGenerator.State.Empty or GridGenerator.State.Flagged
 	grid:SetCellState(row, col, newState, true)
 	grid:SetCellIndicator(row, col, newState == GridGenerator.State.Flagged and "⚑" or "")
 	updateProgress()
@@ -495,7 +418,7 @@ local function toggleFlag(row, col)
 end
 
 --=========================================================
--- 12. ACTION MENU SYSTEM
+-- ACTION MENU
 --=========================================================
 
 local currentActionMenu = nil
@@ -509,14 +432,9 @@ end
 
 local function createActionMenu(cell)
 	closeActionMenu()
-	
-	-- Calculate center position of the cell
-	-- We use the Button's AbsolutePosition to place the menu accurately
-	local absPos = cell.Button.AbsolutePosition
-	local absSize = cell.Button.AbsoluteSize
+	local absPos, absSize = cell.Button.AbsolutePosition, cell.Button.AbsoluteSize
 	local center = Vector2.new(absPos.X + absSize.X/2, absPos.Y + absSize.Y/2)
 
-	-- Action Menu Container (Capsule)
 	local menu = UIHelper.frame({
 		Name = "ActionMenu",
 		Size = UDim2.fromOffset(120, 40),
@@ -528,7 +446,6 @@ local function createActionMenu(cell)
 		Parent = screenGui,
 	})
 	UIHelper.corner(20, menu)
-	
 	UIHelper.listLayout({
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -537,7 +454,6 @@ local function createActionMenu(cell)
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, menu)
 
-	-- Helper to create circular buttons
 	local function createCircleButton(text, color, callback)
 		local btn = UIHelper.button({
 			Size = UDim2.fromOffset(30, 30),
@@ -554,18 +470,11 @@ local function createActionMenu(cell)
 			callback()
 			closeActionMenu()
 		end)
-		return btn
 	end
 
-	-- Button 1: Cancel (X)
-	createCircleButton("X", Color3.fromRGB(180, 50, 50), function()
-		playSfx()
-	end)
-
-	-- Button 2: Dig (Shovel)
+	createCircleButton("X", Color3.fromRGB(180, 50, 50), function() playSfx() end)
 	createCircleButton("⛏", Theme.Accent, function()
 		playSfx()
-		-- First click safety logic
 		if not state.gameStarted then
 			local cols, rows = grid:GetDimensions()
 			state.minefield = GameLogic.generateMinefield({row = cell.Row, col = cell.Column}, rows, cols, state.target)
@@ -574,8 +483,6 @@ local function createActionMenu(cell)
 		end
 		revealCell(cell.Row, cell.Column)
 	end)
-
-	-- Button 3: Flag
 	createCircleButton("⚑", Theme.PanelLight, function()
 		playSfx()
 		toggleFlag(cell.Row, cell.Column)
@@ -585,28 +492,11 @@ local function createActionMenu(cell)
 end
 
 --=========================================================
--- 13. INPUT DETECTION
+-- INPUT SYSTEM
 --=========================================================
 
-local lastClickTime = 0
-local lastClickedCell = nil
-local pressStartTime = 0
-local pressCell = nil
+local lastClickTime, lastClickedCell, pressStartTime, pressCell = 0, nil, 0, nil
 
--- We use a custom handler for clicks because TextButton.Activated 
--- doesn't provide precise timing for long-press/double-click.
--- We will connect to the Grid's interaction signals but handle logic here.
-
-grid:OnCellClicked(function(cell)
-	-- This is triggered by .Activated. 
-	-- To implement long-press and double-click accurately, 
-	-- we'll shift to using InputBegan/InputEnded.
-end)
-
--- The GridGenerator's buttons already have .Activated. 
--- Since we want to intercept those, let's overwrite the handler.
-
--- Redefine interaction flow:
 local function onCellInputBegan(cell)
 	pressStartTime = tick()
 	pressCell = cell
@@ -617,11 +507,9 @@ local function onCellInputEnded(cell)
 	local now = tick()
 	
 	if duration >= LONG_PRESS_THRESHOLD then
-		-- LONG PRESS -> FLAG
 		toggleFlag(cell.Row, cell.Column)
 		playSfx()
 	elseif now - lastClickTime <= DOUBLE_CLICK_THRESHOLD and lastClickedCell == cell then
-		-- DOUBLE CLICK -> REVEAL
 		if not state.gameStarted then
 			local cols, rows = grid:GetDimensions()
 			state.minefield = GameLogic.generateMinefield({row = cell.Row, col = cell.Column}, rows, cols, state.target)
@@ -631,32 +519,23 @@ local function onCellInputEnded(cell)
 		revealCell(cell.Row, cell.Column)
 		playSfx()
 	else
-		-- SINGLE CLICK -> ACTION MENU
 		createActionMenu(cell)
 	end
 	
-	lastClickTime = now
-	lastClickedCell = cell
+	lastClickTime, lastClickedCell = now, cell
 end
 
--- To integrate this with GridGenerator, we need to connect to 
--- individual buttons since they are created dynamically.
--- We will add a method to GridGenerator to connect these.
 grid:ForEachCell(function(cell)
 	cell.Button.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			onCellInputBegan(cell)
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then onCellInputBegan(cell) end
 	end)
 	cell.Button.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			onCellInputEnded(cell)
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then onCellInputEnded(cell) end
 	end)
 end)
 
 --=========================================================
--- 14. WIRING: SOUND BUTTON
+-- WIRING
 --=========================================================
 soundButton.Activated:Connect(function()
 	state.muted = not state.muted
@@ -666,47 +545,33 @@ soundButton.Activated:Connect(function()
 	if not state.muted then playSfx() end
 end)
 
---=========================================================
--- 15. WIRING: MENU BUTTON (placeholder)
---=========================================================
 menuButton.Activated:Connect(function()
 	playSfx()
 	print("[UI] Menu hamburger ditekan — TODO: buka pause panel")
 end)
 
---=========================================================
--- 16. WIRING: DROPDOWN
---=========================================================
+-- Dropdown Logic
 local dropdownOptionButtons = {}
-for _, child in ipairs(dropdownMenu:GetChildren()) do
+for _, child in dropdownMenu:GetChildren() do
 	if child:IsA("TextButton") then
 		dropdownOptionButtons[child.Name:gsub("^Option_", "")] = child
 	end
 end
 
-local function openDropdown()
-	state.dropdownOpen = true
-	dropdownBackdrop.Visible = true
-	dropdownMenu.Visible = true
-end
-
-local function closeDropdown()
-	state.dropdownOpen = false
-	dropdownBackdrop.Visible = false
-	dropdownMenu.Visible = false
+local function setDropdownVisible(visible)
+	state.dropdownOpen = visible
+	dropdownBackdrop.Visible = visible
+	dropdownMenu.Visible = visible
 end
 
 difficultyButton.Activated:Connect(function()
-	if state.dropdownOpen then closeDropdown() else openDropdown() end
+	setDropdownVisible(not state.dropdownOpen)
 end)
+dropdownBackdrop.Activated:Connect(function() setDropdownVisible(false) end)
 
-dropdownBackdrop.Activated:Connect(closeDropdown)
-
---=========================================================
--- 17. GAME FLOW
---=========================================================
+-- Game Flow
 local function findDifficulty(name)
-	for _, d in ipairs(DIFFICULTIES) do
+	for _, d in DIFFICULTIES do
 		if d.Name == name then return d end
 	end
 	return DIFFICULTIES[1]
@@ -725,24 +590,18 @@ local function startGame(difficultyData)
 	difficultyLabel.Text = difficultyData.Name
 	progressLabel.Text = string.format("0 / %d", difficultyData.Targets)
 	timerLabel.Text = "000"
-	for name, btn in pairs(dropdownOptionButtons) do
+	for name, btn in dropdownOptionButtons do
 		btn.BackgroundTransparency = (name == difficultyData.Name) and 0 or 0.35
 	end
 	stopTimer()
 end
 
-for name, btn in pairs(dropdownOptionButtons) do
+for name, btn in dropdownOptionButtons do
 	btn.Activated:Connect(function()
-		closeDropdown()
+		setDropdownVisible(false)
 		playSfx()
 		startGame(findDifficulty(name))
 	end)
 end
 
---=========================================================
--- 18. MULAI GAME
---=========================================================
 startGame(findDifficulty(DEFAULT_DIFFICULTY))
-
-(End of file - total 519 lines)
-</content>
